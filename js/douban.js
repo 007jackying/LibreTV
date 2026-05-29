@@ -1,5 +1,95 @@
 // 豆瓣热门电影电视剧推荐功能
 
+// 获取豆瓣数据代理配置
+function getDoubanDataProxyConfig() {
+    const proxyType = localStorage.getItem('doubanDataProxyType') || 'auto';
+    const proxyUrl = localStorage.getItem('doubanDataProxyUrl') || '';
+    return { proxyType, proxyUrl };
+}
+
+// 保存豆瓣数据代理设置
+function saveDoubanDataProxy(value) {
+    localStorage.setItem('doubanDataProxyType', value);
+}
+
+// 保存豆瓣图片代理设置
+function saveDoubanImageProxy(value) {
+    localStorage.setItem('doubanImageProxyType', value);
+    // 切换后重新加载当前豆瓣内容
+    if (localStorage.getItem('doubanEnabled') === 'true') {
+        renderRecommend(doubanCurrentTag, doubanPageSize, doubanPageStart);
+    }
+}
+
+// 重置豆瓣代理设置为默认值
+function resetDoubanSettings() {
+    localStorage.removeItem('doubanDataProxyType');
+    localStorage.removeItem('doubanImageProxyType');
+    localStorage.removeItem('doubanDataProxyUrl');
+    localStorage.removeItem('doubanImageProxyUrl');
+    initDoubanProxySettings();
+    if (localStorage.getItem('doubanEnabled') === 'true') {
+        renderRecommend(doubanCurrentTag, doubanPageSize, doubanPageStart);
+    }
+    showToast('豆瓣代理设置已恢复默认', 'success');
+}
+
+// 初始化豆瓣代理设置UI（同步select选中状态）
+function initDoubanProxySettings() {
+    const dataSelect = document.getElementById('doubanDataProxySelect');
+    const imageSelect = document.getElementById('doubanImageProxySelect');
+    if (dataSelect) {
+        dataSelect.value = localStorage.getItem('doubanDataProxyType') || 'auto';
+    }
+    if (imageSelect) {
+        imageSelect.value = localStorage.getItem('doubanImageProxyType') || 'cmliussss-cdn-tencent';
+    }
+}
+
+// 获取豆瓣图片代理配置（与LunaTV保持一致的代理机制）
+function getDoubanImageProxyConfig() {
+    const proxyType = localStorage.getItem('doubanImageProxyType') || 'cmliussss-cdn-tencent';
+    const proxyUrl = localStorage.getItem('doubanImageProxyUrl') || '';
+    return { proxyType, proxyUrl };
+}
+
+// 处理豆瓣图片URL，根据配置选择代理方式（与LunaTV的processImageUrl保持一致）
+function processDoubanImageUrl(originalUrl) {
+    if (!originalUrl || !originalUrl.includes('doubanio.com')) return originalUrl;
+
+    const { proxyType, proxyUrl } = getDoubanImageProxyConfig();
+    switch (proxyType) {
+        case 'cmliussss-cdn-tencent':
+            return originalUrl.replace(/img\d+\.doubanio\.com/g, 'img.doubanio.cmliussss.net');
+        case 'cmliussss-cdn-ali':
+            return originalUrl.replace(/img\d+\.doubanio\.com/g, 'img.doubanio.cmliussss.com');
+        case 'custom':
+            return `${proxyUrl}${encodeURIComponent(originalUrl)}`;
+        case 'server':
+        default:
+            return `/image-proxy?url=${encodeURIComponent(originalUrl)}`;
+    }
+}
+
+// 封面图片加载失败时，通过服务器图片代理重试，仅在有鉴权时回退到本地代理
+function handleCoverError(img) {
+    img.onerror = null;
+    const src = img.dataset.src;
+    if (!src) return;
+    // 先尝试服务器图片代理（添加正确的Referer头）
+    img.src = `/image-proxy?url=${encodeURIComponent(src)}`;
+    img.onerror = function() {
+        this.onerror = null;
+        // 仅在有鉴权时才尝试本地代理，避免产生无效的401错误
+        const authHash = localStorage.getItem('proxyAuthHash') || localStorage.getItem('passwordHash');
+        if (!authHash) return;
+        const proxied = PROXY_URL + encodeURIComponent(src)
+            + `?auth=${encodeURIComponent(authHash)}&t=${Date.now()}`;
+        this.src = proxied;
+        this.classList.add('object-contain');
+    };
+}
+
 // 豆瓣标签列表 - 修改为默认标签
 let defaultMovieTags = ['热门', '最新', '经典', '豆瓣高分', '冷门佳片', '华语', '欧美', '韩国', '日本', '动作', '喜剧', '日综', '爱情', '科幻', '悬疑', '恐怖', '治愈'];
 let defaultTvTags = ['热门', '美剧', '英剧', '韩剧', '日剧', '国产剧', '港剧', '日本动画', '综艺', '纪录片'];
@@ -93,6 +183,9 @@ function initDouban() {
         // 滚动到页面顶部
         window.scrollTo(0, 0);
     }
+
+    // 初始化代理设置UI
+    initDoubanProxySettings();
 
     // 加载用户标签
     loadUserTags();
@@ -442,60 +535,91 @@ function renderRecommend(tag, pageLimit, pageStart) {
 }
 
 async function fetchDoubanData(url) {
-    // 添加超时控制
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10秒超时
-    
-    // 设置请求选项，包括信号和头部
-    const fetchOptions = {
-        signal: controller.signal,
-        headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-            'Referer': 'https://movie.douban.com/',
-            'Accept': 'application/json, text/plain, */*',
-        }
-    };
+    const { proxyType } = getDoubanDataProxyConfig();
 
-    try {
-        // 添加鉴权参数到代理URL
-        const proxiedUrl = await window.ProxyAuth?.addAuthToProxyUrl ? 
-            await window.ProxyAuth.addAuthToProxyUrl(PROXY_URL + encodeURIComponent(url)) :
-            PROXY_URL + encodeURIComponent(url);
-            
-        // 尝试直接访问（豆瓣API可能允许部分CORS请求）
-        const response = await fetch(proxiedUrl, fetchOptions);
-        clearTimeout(timeoutId);
-        
-        if (!response.ok) {
-            throw new Error(`HTTP error! Status: ${response.status}`);
+    // CDN 直连模式：将 movie.douban.com/m.douban.com 替换为 CDN 域名
+    if (proxyType === 'cmliussss-cdn-tencent' || proxyType === 'cmliussss-cdn-ali') {
+        const cdnDomain = proxyType === 'cmliussss-cdn-tencent'
+            ? 'm.douban.cmliussss.net'
+            : 'm.douban.cmliussss.com';
+        const cdnUrl = url
+            .replace('movie.douban.com', cdnDomain)
+            .replace('m.douban.com', cdnDomain);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        try {
+            const response = await fetch(cdnUrl, { signal: controller.signal });
+            clearTimeout(timeoutId);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return await response.json();
+        } catch (err) {
+            clearTimeout(timeoutId);
+            console.warn(`CDN 代理请求失败 (${cdnDomain}):`, err.message);
+            // CDN 失败则回退到自动模式
         }
-        
+    }
+
+    // CORS 代理模式 (ciao-cors)
+    if (proxyType === 'cors-proxy-zwei') {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        try {
+            const response = await fetch(`https://ciao-cors.is-an.org/${encodeURIComponent(url)}`, { signal: controller.signal });
+            clearTimeout(timeoutId);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return await response.json();
+        } catch (err) {
+            clearTimeout(timeoutId);
+            console.warn('ciao-cors 代理请求失败:', err.message);
+            // 失败则回退到自动模式
+        }
+    }
+
+    // 自动模式（默认）：依次尝试第三方代理，最终回退到本站代理
+    const thirdPartyProxies = [
+        // allorigins: 返回 { contents: "..." }
+        {
+            build: (u) => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
+            parse: (data) => JSON.parse(data.contents),
+        },
+        // corsproxy.io: 直接透传响应
+        {
+            build: (u) => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+            parse: (data) => data,
+        },
+    ];
+
+    for (const proxy of thirdPartyProxies) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        try {
+            const response = await fetch(proxy.build(url), { signal: controller.signal });
+            clearTimeout(timeoutId);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const data = await response.json();
+            return proxy.parse(data);
+        } catch (err) {
+            clearTimeout(timeoutId);
+            console.warn(`第三方代理请求失败 (${proxy.build(url).split('?')[0]}):`, err.message);
+        }
+    }
+
+    // 最终回退：通过本站代理（带鉴权）
+    console.warn('所有第三方代理失败，尝试本站代理...');
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    try {
+        const proxiedUrl = await window.ProxyAuth?.addAuthToProxyUrl
+            ? await window.ProxyAuth.addAuthToProxyUrl(PROXY_URL + encodeURIComponent(url))
+            : PROXY_URL + encodeURIComponent(url);
+        const response = await fetch(proxiedUrl, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         return await response.json();
     } catch (err) {
-        console.error("豆瓣 API 请求失败（直接代理）：", err);
-        
-        // 失败后尝试备用方法：作为备选
-        const fallbackUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
-        
-        try {
-            const fallbackResponse = await fetch(fallbackUrl);
-            
-            if (!fallbackResponse.ok) {
-                throw new Error(`备用API请求失败! 状态: ${fallbackResponse.status}`);
-            }
-            
-            const data = await fallbackResponse.json();
-            
-            // 解析原始内容
-            if (data && data.contents) {
-                return JSON.parse(data.contents);
-            } else {
-                throw new Error("无法获取有效数据");
-            }
-        } catch (fallbackErr) {
-            console.error("豆瓣 API 备用请求也失败：", fallbackErr);
-            throw fallbackErr; // 向上抛出错误，让调用者处理
-        }
+        clearTimeout(timeoutId);
+        console.error('本站代理也失败：', err.message);
+        throw err;
     }
 }
 
@@ -528,19 +652,16 @@ function renderDoubanCards(data, container) {
                 .replace(/</g, '&lt;')
                 .replace(/>/g, '&gt;');
             
-            // 处理图片URL
-            // 1. 直接使用豆瓣图片URL (添加no-referrer属性)
+            // 处理图片URL：使用与LunaTV一致的代理机制，主动转换URL而非等待加载失败
             const originalCoverUrl = item.cover;
-            
-            // 2. 也准备代理URL作为备选
-            const proxiedCoverUrl = PROXY_URL + encodeURIComponent(originalCoverUrl);
-            
+            const proxiedCoverUrl = processDoubanImageUrl(originalCoverUrl);
+
             // 为不同设备优化卡片布局
             card.innerHTML = `
                 <div class="relative w-full aspect-[2/3] overflow-hidden cursor-pointer" onclick="fillAndSearchWithDouban('${safeTitle}')">
-                    <img src="${originalCoverUrl}" alt="${safeTitle}" 
+                    <img src="${proxiedCoverUrl}" alt="${safeTitle}" data-src="${originalCoverUrl}"
                         class="w-full h-full object-cover transition-transform duration-500 hover:scale-110"
-                        onerror="this.onerror=null; this.src='${proxiedCoverUrl}'; this.classList.add('object-contain');"
+                        onerror="handleCoverError(this)"
                         loading="lazy" referrerpolicy="no-referrer">
                     <div class="absolute inset-0 bg-gradient-to-t from-black to-transparent opacity-60"></div>
                     <div class="absolute bottom-2 left-2 bg-black/70 text-white text-xs px-2 py-1 rounded-sm">
