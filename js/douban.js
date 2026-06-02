@@ -177,11 +177,40 @@ function resetDoubanInfiniteScrollState() {
 function showDoubanLoadingMore() {
     const el = document.getElementById('douban-loading-more');
     if (el) el.classList.remove('hidden');
+    appendDoubanShimmerCards(8);
 }
 
 function hideDoubanLoadingMore() {
     const el = document.getElementById('douban-loading-more');
     if (el) el.classList.add('hidden');
+    removeDoubanShimmerCards();
+}
+
+function appendDoubanShimmerCards(count) {
+    const container = document.getElementById('douban-results');
+    if (!container) return;
+    const fragment = document.createDocumentFragment();
+    for (let i = 0; i < count; i++) {
+        const card = document.createElement('div');
+        card.className = 'douban-shimmer-card bg-[#111] rounded-lg overflow-hidden';
+        card.innerHTML = `
+            <div class="relative w-full aspect-[2/3] bg-[#1a1a1a] shimmer"></div>
+            <div class="p-2 space-y-2">
+                <div class="h-3 bg-[#1a1a1a] shimmer rounded w-3/4"></div>
+                <div class="h-3 bg-[#1a1a1a] shimmer rounded w-1/2"></div>
+            </div>
+        `;
+        fragment.appendChild(card);
+    }
+    container.appendChild(fragment);
+}
+
+function removeDoubanShimmerCards() {
+    const container = document.getElementById('douban-results');
+    if (!container) return;
+    container.querySelectorAll('.douban-shimmer-card').forEach(function(el) {
+        el.remove();
+    });
 }
 
 // Show/hide no more data indicator
@@ -792,15 +821,15 @@ async function fetchDoubanData(url) {
 
     // 自动模式（默认）：依次尝试第三方代理，最终回退到本站代理
     const thirdPartyProxies = [
+        // cors.lol: 直接透传响应
+        {
+            build: (u) => `https://api.cors.lol/?url=${encodeURIComponent(u)}`,
+            parse: (data) => data,
+        },
         // allorigins: 返回 { contents: "..." }
         {
             build: (u) => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
             parse: (data) => JSON.parse(data.contents),
-        },
-        // corsproxy.io: 直接透传响应
-        {
-            build: (u) => `https://corsproxy.io/?${encodeURIComponent(u)}`,
-            parse: (data) => data,
         },
     ];
 
