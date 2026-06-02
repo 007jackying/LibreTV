@@ -170,6 +170,41 @@
                 </div>
             </div>
 
+            <!-- 豆瓣代理设置区域 -->
+            <div class="p-3 bg-[#151515] rounded-lg shadow-inner">
+                <div class="flex justify-between items-center mb-3 border-b border-[#333] pb-1">
+                    <label class="block text-sm font-medium text-gray-400">豆瓣本地设置</label>
+                    <button onclick="resetDoubanSettings()" class="text-xs px-2 py-0.5 bg-[#333] hover:bg-[#444] text-gray-300 rounded transition-colors">恢复默认</button>
+                </div>
+
+                <!-- 豆瓣数据代理 -->
+                <div class="mb-4">
+                    <label class="text-xs font-medium text-gray-400 mb-1 block">豆瓣数据代理</label>
+                    <p class="text-xs text-gray-500 mb-2">选择获取豆瓣数据的方式</p>
+                    <select id="doubanDataProxySelect" onchange="saveDoubanDataProxy(this.value)"
+                            class="w-full bg-[#222] border border-[#333] text-white px-2 py-1.5 rounded text-sm focus:outline-none focus:border-pink-500">
+                        <option value="auto">自动（多代理轮询）</option>
+                        <option value="cmliussss-cdn-tencent">豆瓣 CDN By CMLiussss（腾讯云）</option>
+                        <option value="cmliussss-cdn-ali">豆瓣 CDN By CMLiussss（阿里云）</option>
+                        <option value="cors-proxy-zwei">CORS 代理 (ciao-cors)</option>
+                    </select>
+                    <p class="text-xs text-gray-600 mt-1">Thanks to @CMLiussss</p>
+                </div>
+
+                <!-- 豆瓣图片代理 -->
+                <div>
+                    <label class="text-xs font-medium text-gray-400 mb-1 block">豆瓣图片代理</label>
+                    <p class="text-xs text-gray-500 mb-2">选择获取豆瓣图片的方式</p>
+                    <select id="doubanImageProxySelect" onchange="saveDoubanImageProxy(this.value)"
+                            class="w-full bg-[#222] border border-[#333] text-white px-2 py-1.5 rounded text-sm focus:outline-none focus:border-pink-500">
+                        <option value="server">本站服务器代理（推荐）</option>
+                        <option value="cmliussss-cdn-tencent">豆瓣 CDN By CMLiussss（腾讯云）</option>
+                        <option value="cmliussss-cdn-ali">豆瓣 CDN By CMLiussss（阿里云）</option>
+                    </select>
+                    <p class="text-xs text-gray-600 mt-1">Thanks to @CMLiussss</p>
+                </div>
+            </div>
+
             <!-- 一般功能区域 -->
             <div class="p-3 bg-[#151515] rounded-lg shadow-inner">
                 <label class="block text-sm font-medium text-gray-400 mb-3 border-b border-[#333] pb-1">一般功能</label>
@@ -253,11 +288,11 @@
                                     <button id="douban-tv-toggle" class="px-3 py-1 text-sm rounded-full text-gray-300 hover:text-white">电视剧</button>
                                 </div>
                             </div>
-                            <button id="douban-refresh" class="text-sm px-3 py-1 bg-pink-600 hover:bg-pink-700 text-white rounded-lg flex items-center gap-1">
-                                <span>换一批</span>
+                            <button id="douban-scroll-top" onclick="scrollToDoubanTop()" class="text-sm px-3 py-1 bg-[#333] hover:bg-[#444] border border-[#333] hover:border-white text-white rounded-lg flex items-center gap-1 transition-colors">
                                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18" />
                                 </svg>
+                                <span>返回顶部</span>
                             </button>
                         </div>
                         <!-- 分类标签独立成行，添加滚动支持以适应移动设备 -->
@@ -268,6 +303,17 @@
                     
                     <!-- 推荐内容 -->
                     <div id="douban-results" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-3"></div>
+                    
+                    <!-- Infinite scroll sentinel -->
+                    <div id="douban-scroll-sentinel" class="py-4 flex justify-center items-center">
+                        <div id="douban-loading-more" class="hidden flex items-center gap-2">
+                            <div class="w-5 h-5 border-2 border-pink-500 border-t-transparent rounded-full animate-spin"></div>
+                            <span class="text-gray-400 text-sm">加载更多...</span>
+                        </div>
+                        <div id="douban-no-more" class="hidden text-gray-500 text-sm py-2">
+                            — 已加载全部内容 —
+                        </div>
+                    </div>
                 </div>
             </div>
             
@@ -441,5 +487,12 @@
 
     <!-- 添加弹窗和URL搜索参数处理脚本 -->
     <script src="js/index-page.js"></script>
+    
+    <!-- 全局首页函数 -->
+    <script>
+        function resetToHome() {
+            window.location.href = '/';
+        }
+    </script>
 </body>
 </html>

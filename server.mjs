@@ -222,6 +222,43 @@ app.get('/proxy/:encodedUrl', async (req, res) => {
   }
 });
 
+// 豆瓣图片代理 - 添加必要的Referer头，无需鉴权（图片为公开资源）
+app.get('/image-proxy', async (req, res) => {
+  const imageUrl = req.query.url;
+
+  if (!imageUrl) {
+    return res.status(400).json({ error: '缺少图片URL参数' });
+  }
+
+  if (!isValidUrl(imageUrl)) {
+    return res.status(400).json({ error: '无效的URL' });
+  }
+
+  try {
+    const response = await axios({
+      method: 'get',
+      url: imageUrl,
+      responseType: 'stream',
+      timeout: config.timeout,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+        'Referer': 'https://movie.douban.com/',
+        'Origin': 'https://movie.douban.com',
+        'Accept': 'image/webp,image/avif,image/*,*/*;q=0.8',
+        'Accept-Language': 'zh-CN,zh;q=0.9',
+      }
+    });
+
+    const contentType = response.headers['content-type'];
+    if (contentType) res.set('Content-Type', contentType);
+    res.set('Cache-Control', 'public, max-age=15720000');
+    response.data.pipe(res);
+  } catch (error) {
+    console.error('图片代理请求错误:', error.message);
+    res.status(500).json({ error: '获取图片失败' });
+  }
+});
+
 app.use(express.static(path.join(__dirname), {
   maxAge: config.cacheMaxAge
 }));

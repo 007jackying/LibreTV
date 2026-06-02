@@ -116,19 +116,39 @@
     color: white;
 }
 
-.douban-refresh-button {
+.douban-scroll-top-button {
     font-size: 0.875rem;
     padding: 0.25rem 0.75rem;
-    background: #db2777;
+    background: #333;
     color: white;
+    border: 1px solid #333;
     border-radius: 0.5rem;
     display: flex;
     align-items: center;
     gap: 0.25rem;
+    opacity: 0.7;
+    transition: all 0.2s ease;
 }
 
-.douban-refresh-button:hover {
-    background: #be185d;
+.douban-scroll-top-button:hover {
+    background: #444;
+    border-color: white;
+    opacity: 1;
+}
+
+#douban-scroll-sentinel {
+    min-height: 2rem;
+}
+
+#douban-loading-more {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+#douban-no-more {
+    text-align: center;
+    padding: 0.5rem 0;
 }
 
 .douban-tags-container {

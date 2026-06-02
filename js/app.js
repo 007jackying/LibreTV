@@ -594,6 +594,11 @@ function resetSearchArea() {
     }
 }
 
+// 返回首页
+window.resetToHome = function() {
+    window.location.href = '/';
+};
+
 // 获取自定义API信息
 function getCustomApiInfo(customApiIndex) {
     const index = parseInt(customApiIndex);

@@ -10,6 +10,12 @@
   function = "inject-env"
   path = "/*"
 
+# 豆瓣图片代理路由
+[[redirects]]
+  from = "/image-proxy"
+  to = "/.netlify/functions/image-proxy"
+  status = 200
+
 # 配置重写规则，将 /proxy/* 的请求路由到 proxy 函数
 # 这样前端的 PROXY_URL 仍然可以是 '/proxy/'
 [[redirects]]
