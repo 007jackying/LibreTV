@@ -183,3 +183,73 @@ Replace "换一批" button with "返回顶部" button. Add sentinel element afte
 | 2026-06-02 | Full test suite: 34 tests passing across 5 suites | ✅ All tests green |
 | 2026-06-02 | Added missing scroll tests: douban-scroll unit (8), douban-scroll-flow integration (8) | ✅ 50 tests total |
 | 2026-06-02 | Fixed missing resetToHome() function in app.js for "首页" button | ✅ Navigation fixed |
+
+---
+
+# Update Plan: UX Improvements from MoonTV / LunaTV Comparison
+
+## Overview
+
+Compared LibreTV to two Next.js/TypeScript forks (MoonTV, LunaTV) and backported 6 UX improvements to vanilla JS. All features implemented, revised, and bug-fixed.
+
+## File Change Summary
+
+| # | File(s) | Feature | Status |
+|---|---------|---------|--------|
+| 1 | `js/search.js` | In-memory search result cache (10-min TTL, 500-entry FIFO) | ✅ Done |
+| 2 | `service-worker.js` | Cache-first SW for static assets (`static-v1`) | ✅ Done |
+| 3 | `js/app.js` | Batched DOM rendering via IntersectionObserver (20 results/batch) | ✅ Done |
+| 4 | `js/suggestions.js` (new) | Search autocomplete from localStorage history | ✅ Done |
+| 5 | `live.html` (new), `js/live.js` (new), `index.html`, `server.mjs`, `netlify.toml` | IPTV live TV page with M3U source management, HLS playback, favourites | ✅ Done |
+| 6 | `js/downloader.js` (new), `player.html`, `js/player.js` | M3U8 download manager — FSA API + Blob fallback, pause/resume/cancel | ✅ Done |
+
+## Feature Details
+
+### Feature 1 — Search cache (`js/search.js`)
+In-memory `Map` keyed `apiId::query`. TTL 10 min, FIFO eviction at 500 entries. Wraps `searchByAPIAndKeyWord` transparently.
+
+### Feature 2 — Service worker (`service-worker.js`)
+Cache-first for `.js .css .woff2? .png .svg .ico .webp`. API calls and cross-origin bypass. Cache key: `static-v1` — bump to invalidate.
+
+### Feature 3 — Batched rendering (`js/app.js`)
+`renderResultsBatched(htmlStrings, container)` — first 20 items paint immediately; sentinel `div` observed with 200px rootMargin loads next 20 lazily. Module-level `_batchObserver` disconnected on each new search.
+
+### Feature 4 — Search autocomplete (`js/suggestions.js`)
+IIFE. Reads localStorage history, keyboard nav (↑/↓/Enter/Esc), debounced input, click-outside dismiss. Injected as `<script>` after `app.js` in `index.html`.
+
+### Feature 5 — Live TV (`live.html` + `js/live.js`)
+- Vanilla M3U parser; groups by `group-title`
+- HLS via hls.js through `/proxy/`
+- Sources in `localStorage.liveCustomSources`; favourites in `localStorage.liveFavourites`
+- Mobile: sidebar is `absolute inset-0 z-30`, closes on channel click
+- `📺 直播` nav link in `index.html` header
+- Route added to `server.mjs` and Netlify redirect
+
+### Feature 6 — Download manager (`js/downloader.js`)
+- M3U8 parser handles master playlists (highest-bandwidth selection)
+- **Chrome/Edge**: `showSaveFilePicker` — ordered-write pump, 4 concurrent fetches, `CONC×2` lookahead cap, `writable.abort()` on error
+- **Firefox/Safari**: Blob fallback, 300-segment limit
+- Pause: shared `_pausePromise`; all concurrent waiters await same Promise, all unblock on resume
+- 3-retry / exponential backoff per segment
+- AES warning when `#EXT-X-KEY` present
+- Button: ↓ icon in player toolbar; `window.currentVideoUrl` exposed from `player.js`
+
+## Bugs Fixed During Revision
+
+| Feature | Bug | Fix |
+|---------|-----|-----|
+| 3 | Observer leaked across searches | `_batchObserver` disconnected at top of each `renderResultsBatched` call |
+| 4 | Fragile `closest('.flex.items-stretch')` selector | `closest('div.flex')` + null guard |
+| 4 | Missing `null` check on `tmp.firstElementChild` | Added `if (tmp.firstElementChild)` guard |
+| 6 | `waitIfPaused` race: only last concurrent waiter woke on resume | Shared `_pausePromise` + `while` loop pattern |
+| 6 | `FileSystemWritableFileStream` leaked on cancel/error | `try/finally` calls `writable.abort()` on error path |
+| 6 | Dead code `setAttribute('data-msg')` in `setStatus` | Removed |
+
+## Progress Log
+
+| Date | Action | Result |
+|------|--------|--------|
+| 2026-06-22 | Compared LibreTV to MoonTV/LunaTV, produced ranked feature list | ✅ Planning done |
+| 2026-06-22 | Features 1–4 implemented and bug-fixed | ✅ Done |
+| 2026-06-22 | Feature 5 (live TV) implemented and bug-fixed | ✅ Done |
+| 2026-06-22 | Feature 6 (M3U8 downloader) implemented, revised, bugs fixed | ✅ Done |

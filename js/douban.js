@@ -233,6 +233,7 @@ function removeDoubanShimmerCards() {
 
 // Show/hide no more data indicator
 function showDoubanNoMore() {
+    hideDoubanLoadingMore();
     const el = document.getElementById('douban-no-more');
     if (el) el.classList.remove('hidden');
 }
@@ -289,18 +290,21 @@ async function handleDoubanScrollLoad() {
     const nextStart = doubanScrollState.displayCount;
     const nextEnd = Math.min(nextStart + doubanScrollState.displayBatchSize, doubanScrollState.allData.length);
 
-    if (nextEnd <= nextStart) return;
+    if (nextEnd <= nextStart) {
+        // Prefetch hasn't returned yet — show shimmers while waiting
+        if (doubanScrollState.hasMoreData) appendDoubanShimmerCards(8);
+        return;
+    }
 
     doubanScrollState.isFetching = true;
-    showDoubanLoadingMore();
 
     try {
+        removeDoubanShimmerCards();
         const nextItems = doubanScrollState.allData.slice(nextStart, nextEnd);
         appendDoubanCards(nextItems);
         doubanScrollState.displayCount = nextEnd;
     } finally {
         doubanScrollState.isFetching = false;
-        hideDoubanLoadingMore();
     }
 }
 
@@ -318,7 +322,13 @@ async function prefetchDoubanBatches(tag) {
             if (doubanScrollState.requestId !== reqId) return;
 
             if (data.subjects && data.subjects.length > 0) {
+                const prevLen = doubanScrollState.allData.length;
                 doubanScrollState.allData = doubanScrollState.allData.concat(data.subjects);
+                // Display was waiting (caught up to end of allData) — push new items now.
+                // Use setTimeout so the browser paints any shimmer cards before we replace them.
+                if (doubanScrollState.displayCount >= prevLen) {
+                    setTimeout(handleDoubanScrollLoad, 300);
+                }
                 if (data.subjects.length < batchSize) {
                     doubanScrollState.hasMoreData = false;
                     hideDoubanLoadingMore();
@@ -330,7 +340,10 @@ async function prefetchDoubanBatches(tag) {
                 showDoubanNoMore();
             }
         } catch (error) {
-            console.warn('Prefetch failed for start=' + start, error);
+            console.error(`[Douban] prefetch ✗ page_start=${start}`, error.message);
+            doubanScrollState.hasMoreData = false;
+            hideDoubanLoadingMore();
+            showDoubanNoMore();
             return;
         }
     }
@@ -386,6 +399,63 @@ function appendDoubanCards(items) {
     });
 
     container.appendChild(fragment);
+}
+
+// 热门横滑行配置 — uses proven search_subjects API (same as the tag grid)
+const HOT_ROW_DEFS = [
+    { id: 'hot-movies',  type: 'movie', tag: '热门' },
+    { id: 'hot-tv',      type: 'tv',    tag: '热门' },
+    { id: 'hot-variety', type: 'tv',    tag: '综艺' },
+];
+
+async function loadDoubanHotRows() {
+    const container = document.getElementById('douban-hot-rows');
+    if (!container) return;
+
+    // Show skeleton placeholders
+    HOT_ROW_DEFS.forEach(function(def) {
+        const row = document.getElementById(def.id + '-row');
+        if (row) row.innerHTML = Array(8).fill(
+            '<div style="width:80px;flex-shrink:0">' +
+            '<div style="width:80px;height:120px;border-radius:8px;background:#1a1a1a" class="shimmer"></div>' +
+            '<div style="height:12px;margin-top:8px;background:#1a1a1a;border-radius:4px;width:60px" class="shimmer"></div></div>'
+        ).join('');
+    });
+
+    await Promise.allSettled(HOT_ROW_DEFS.map(function(def) {
+        const url = 'https://movie.douban.com/j/search_subjects?type=' + def.type +
+            '&tag=' + encodeURIComponent(def.tag) + '&sort=recommend&page_limit=20&page_start=0';
+        return fetchDoubanData(url)
+            .then(function(data) { renderDoubanHotRow(def.id + '-row', data.subjects || []); })
+            .catch(function() {
+                const row = document.getElementById(def.id + '-row');
+                if (row) row.innerHTML = '<span class="text-gray-500 text-sm px-2">加载失败</span>';
+            });
+    }));
+}
+
+function renderDoubanHotRow(rowId, items) {
+    const row = document.getElementById(rowId);
+    if (!row) return;
+    if (!items.length) { row.innerHTML = ''; return; }
+
+    row.innerHTML = items.map(function(item) {
+        const title = (item.title || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        const rate  = item.rate || '';
+        const orig  = item.cover || '';
+        const cover = processDoubanImageUrl(orig);
+        const rateBadge = rate ? '<div class="absolute bottom-1 left-1 bg-black/70 text-yellow-400 text-xs px-1 rounded">★ ' + rate + '</div>' : '';
+
+        return '<div class="w-20 sm:w-[130px] shrink-0 cursor-pointer" onclick="fillAndSearchWithDouban(\'' + title + '\')">' +
+            '<div class="relative aspect-[2/3] rounded-lg overflow-hidden bg-[#1a1a1a]">' +
+            '<img src="' + cover + '" data-src="' + orig + '" alt="' + title + '"' +
+            ' class="w-full h-full object-cover transition-transform duration-300 hover:scale-105"' +
+            ' onerror="handleCoverError(this)" loading="lazy" referrerpolicy="no-referrer">' +
+            rateBadge +
+            '</div>' +
+            '<div class="mt-1 text-xs text-gray-300 truncate">' + title + '</div>' +
+            '</div>';
+    }).join('');
 }
 
 // 初始化豆瓣功能
@@ -446,6 +516,7 @@ function initDouban() {
     
     // 初始加载热门内容
     if (localStorage.getItem('doubanEnabled') === 'true') {
+        loadDoubanHotRows();
         renderRecommend(doubanCurrentTag);
     }
 }
@@ -454,17 +525,22 @@ function initDouban() {
 function updateDoubanVisibility() {
     const doubanArea = document.getElementById('doubanArea');
     if (!doubanArea) return;
-    
+
     const isEnabled = localStorage.getItem('doubanEnabled') === 'true';
-    const isSearching = document.getElementById('resultsArea') && 
+    const isSearching = document.getElementById('resultsArea') &&
         !document.getElementById('resultsArea').classList.contains('hidden');
-    
+
     // 只有在启用且没有搜索结果显示时才显示豆瓣区域
     if (isEnabled && !isSearching) {
         doubanArea.classList.remove('hidden');
         // 如果豆瓣结果为空，重新加载
         if (document.getElementById('douban-results').children.length === 0) {
             renderRecommend(doubanCurrentTag);
+        }
+        // 如果热门行为空，重新加载
+        const hotRows = document.getElementById('douban-hot-rows');
+        if (hotRows && !hotRows.querySelector('img')) {
+            loadDoubanHotRows();
         }
     } else {
         doubanArea.classList.add('hidden');

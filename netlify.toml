@@ -29,6 +29,12 @@
   to = "/index.html"
   status = 200
 
+# 直播页面路由
+[[redirects]]
+  from = "/live"
+  to = "/live.html"
+  status = 200
+
 # （可选）为其他静态文件设置缓存头等
 # [[headers]]
 #   for = "/*"

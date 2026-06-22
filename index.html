@@ -19,7 +19,10 @@
 </head>
 <body class="page-bg text-white">
     <!-- 将历史记录按钮移到左上角，并缩小尺寸 -->
-    <div class="fixed top-4 left-4 z-10">
+    <div class="fixed top-4 left-4 z-10 flex gap-2">
+        <a href="/live.html" class="bg-[#222] hover:bg-[#333] border border-[#333] hover:border-pink-400 rounded-lg px-3 py-1.5 transition-colors text-sm text-gray-300 hover:text-pink-400 flex items-center gap-1" title="直播">
+            📺 <span class="hidden sm:inline">直播</span>
+        </a>
         <button onclick="toggleHistory(event)" class="bg-[#222] hover:bg-[#333] border border-[#333] hover:border-white rounded-lg px-3 py-1.5 transition-colors" aria-label="观看历史">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
@@ -276,6 +279,22 @@
             <!-- 豆瓣热门推荐区域: 默认隐藏，现在位于搜索区域下方，调整宽度 -->
             <div id="doubanArea" class="w-full my-8 hidden">
                 <div class="mx-auto max-w-screen-xl px-2">
+                    <!-- 热门推荐横滑行：电影、剧集、综艺 -->
+                    <div id="douban-hot-rows" class="mb-8 space-y-6">
+                        <div>
+                            <h3 class="text-base font-bold text-white mb-3">热门电影</h3>
+                            <div id="hot-movies-row" class="flex gap-3 overflow-x-auto pb-2 scrollbar-hide"></div>
+                        </div>
+                        <div>
+                            <h3 class="text-base font-bold text-white mb-3">热门剧集</h3>
+                            <div id="hot-tv-row" class="flex gap-3 overflow-x-auto pb-2 scrollbar-hide"></div>
+                        </div>
+                        <div>
+                            <h3 class="text-base font-bold text-white mb-3">热门综艺</h3>
+                            <div id="hot-variety-row" class="flex gap-3 overflow-x-auto pb-2 scrollbar-hide"></div>
+                        </div>
+                    </div>
+
                     <!-- 改进标题和标签区域布局 -->
                     <div class="mb-4">
                         <!-- 标题和刷新按钮一行 -->
@@ -306,9 +325,7 @@
                     
                     <!-- Infinite scroll sentinel -->
                     <div id="douban-scroll-sentinel" class="py-4 flex justify-center items-center">
-                        <div id="douban-loading-more" class="hidden flex items-center gap-2">
-                            <div class="w-5 h-5 border-2 border-pink-500 border-t-transparent rounded-full animate-spin"></div>
-                        </div>
+                        <div id="douban-loading-more" class="hidden"></div>
                         <div id="douban-no-more" class="hidden text-gray-500 text-sm py-4 text-center">— 已加载全部内容 —</div>
                     </div>
                 </div>
@@ -465,6 +482,7 @@
     <script src="js/password.js"></script>
     <script src="js/search.js"></script>
     <script src="js/app.js"></script>
+    <script src="js/suggestions.js"></script>
 
     <!-- PWA 注册 -->
     <script src="js/pwa-register.js"></script>

@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>直播 · LibreTV</title>
+    <link rel="icon" href="image/logo.png">
+    <link rel="manifest" href="manifest.json">
+    <script src="libs/tailwindcss.min.js"></script>
+    <link rel="stylesheet" href="css/styles.css">
+    <style>
+        body { background: #0a0a0a; color: #fff; font-family: system-ui, sans-serif; }
+        #liveVideo { width: 100%; aspect-ratio: 16/9; background: #000; display: block; }
+        .ch-item.active { background: #1f1f2e; border-left: 3px solid #ec4899; }
+        .group-tab { padding: 4px 12px; border-radius: 9999px; font-size: 0.75rem;
+                     white-space: nowrap; border: 1px solid #333; background: #111; color: #aaa;
+                     cursor: pointer; transition: all .15s; }
+        .group-tab.active, .group-tab:hover { background: #ec4899; border-color: #ec4899; color: #fff; }
+        #channelList { overflow-y: auto; flex: 1; min-height: 0; }
+        #groupTabs { display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto;
+                     padding-bottom: 4px; scrollbar-width: none; }
+        #groupTabs::-webkit-scrollbar { display: none; }
+        .sidebar-scroll { display: flex; flex-direction: column; height: 100%; }
+        #sourcePanel { position: absolute; top: 48px; right: 0; left: 0; z-index: 50;
+                       background: #111; border: 1px solid #333; border-radius: 8px;
+                       padding: 12px; box-shadow: 0 8px 32px rgba(0,0,0,.6); }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+
+    <!-- Header -->
+    <div class="flex items-center gap-3 px-4 py-2 border-b border-[#222] bg-[#0d0d0d] flex-shrink-0">
+        <a href="/" class="text-gray-400 hover:text-white transition-colors flex items-center gap-1 text-sm">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+            </svg>
+            返回
+        </a>
+        <span class="text-pink-400 font-semibold">📺 直播</span>
+        <span id="liveChannelName" class="text-gray-300 text-sm truncate flex-1"></span>
+        <button id="btnToggleList" class="sm:hidden text-gray-400 hover:text-white px-2 py-1 text-xs border border-[#333] rounded">
+            频道列表
+        </button>
+        <button id="btnFullscreen" class="text-gray-400 hover:text-white" title="全屏">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 4h-4m4 0l-5-5"/>
+            </svg>
+        </button>
+    </div>
+
+    <!-- Loading overlay -->
+    <div id="liveLoading" class="hidden fixed inset-0 bg-black/70 z-50 flex items-center justify-center">
+        <div class="text-center">
+            <div class="w-10 h-10 border-4 border-pink-500 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
+            <p class="text-gray-300 text-sm">正在加载直播源...</p>
+        </div>
+    </div>
+
+    <!-- Main content -->
+    <div class="flex flex-1 overflow-hidden">
+
+        <!-- Channel sidebar -->
+        <div id="channelSidebar"
+             class="w-72 flex-shrink-0 border-r border-[#222] bg-[#0d0d0d] flex flex-col
+                    absolute inset-0 z-30 sm:static sm:z-auto">
+
+            <!-- Source selector bar — position:relative anchors the dropdown -->
+            <div class="relative flex-shrink-0 px-3 pt-3 pb-2 border-b border-[#222]">
+                <div class="flex gap-2">
+                    <button id="btnSourcePanel"
+                            class="flex-1 text-left text-sm px-3 py-1.5 bg-[#1a1a1a] border border-[#333] rounded hover:border-pink-500 transition-colors truncate text-gray-300">
+                        ＋ 管理直播源
+                    </button>
+                </div>
+                <!-- Source panel dropdown -->
+                <div id="sourcePanel" class="hidden">
+                    <div id="sourceList" class="mb-3 max-h-40 overflow-y-auto"></div>
+                    <div class="border-t border-[#333] pt-3">
+                        <p class="text-xs text-gray-500 mb-2">添加新直播源 (M3U格式)</p>
+                        <input id="newSourceName" type="text" placeholder="名称，如：央视直播" autocomplete="off"
+                               class="w-full bg-[#222] border border-[#333] text-white px-3 py-1.5 rounded text-sm mb-2 focus:outline-none focus:border-pink-500">
+                        <input id="newSourceUrl" type="text" placeholder="M3U地址 http://..." autocomplete="off"
+                               class="w-full bg-[#222] border border-[#333] text-white px-3 py-1.5 rounded text-sm mb-2 focus:outline-none focus:border-pink-500">
+                        <button id="btnAddSource"
+                                class="w-full py-1.5 bg-pink-600 hover:bg-pink-700 text-white text-sm rounded transition-colors">
+                            添加并加载
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Channel search -->
+            <div class="px-3 py-2 flex-shrink-0">
+                <input id="chSearch" type="text" placeholder="搜索频道..." autocomplete="off"
+                       class="w-full bg-[#1a1a1a] border border-[#333] text-white px-3 py-1.5 rounded text-sm focus:outline-none focus:border-pink-500">
+            </div>
+
+            <!-- Group tabs -->
+            <div class="px-3 pb-2 flex-shrink-0">
+                <div id="groupTabs">
+                    <button class="group-tab active" data-group="">全部</button>
+                </div>
+            </div>
+
+            <!-- Channel list -->
+            <div id="channelList" class="flex-1 overflow-y-auto text-white">
+                <div class="text-gray-500 text-sm text-center py-12 px-4">
+                    请先添加直播源
+                </div>
+            </div>
+        </div>
+
+        <!-- Player area -->
+        <div class="flex-1 flex flex-col overflow-hidden bg-black">
+            <video id="liveVideo" controls playsinline></video>
+            <div class="flex-1 bg-[#0a0a0a] px-4 py-3">
+                <p class="text-gray-500 text-sm">
+                    支持标准 M3U/M3U8 格式直播源。点击左侧频道列表开始收看。
+                </p>
+            </div>
+        </div>
+
+    </div>
+
+    <script src="libs/sha256.min.js"></script>
+    <script src="js/config.js"></script>
+    <script src="js/ui.js"></script>
+    <script src="libs/hls.min.js"></script>
+    <script src="js/live.js"></script>
+    <script>
+        // Close channel sidebar on mobile when clicking outside
+        document.addEventListener('click', e => {
+            const sidebar = document.getElementById('channelSidebar');
+            const toggleBtn = document.getElementById('btnToggleList');
+            if (window.innerWidth < 640 && sidebar && !sidebar.classList.contains('hidden')) {
+                if (!sidebar.contains(e.target) && e.target !== toggleBtn) {
+                    sidebar.classList.add('hidden');
+                }
+            }
+        });
+        // Close source panel when clicking outside
+        document.addEventListener('click', e => {
+            const panel = document.getElementById('sourcePanel');
+            const btn = document.getElementById('btnSourcePanel');
+            if (panel && !panel.classList.contains('hidden') &&
+                !panel.contains(e.target) && e.target !== btn) {
+                panel.classList.add('hidden');
+            }
+        });
+    </script>
+</body>
+</html>

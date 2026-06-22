@@ -162,6 +162,7 @@ function initializePageContent() {
 
     // 保存当前视频URL
     currentVideoUrl = videoUrl || '';
+    window.currentVideoUrl = currentVideoUrl;
 
     // 从localStorage获取数据
     currentVideoTitle = title || localStorage.getItem('currentVideoTitle') || '未知视频';
@@ -921,6 +922,7 @@ function playEpisode(index) {
     // 更新当前剧集索引
     currentEpisodeIndex = index;
     currentVideoUrl = url;
+    window.currentVideoUrl = url;
     videoHasEnded = false; // 重置视频结束标志
 
     clearVideoProgress();

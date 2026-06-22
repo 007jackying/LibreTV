@@ -245,3 +245,7 @@
         grid-template-columns: repeat(4, 1fr);
     }
 }
+
+/* 豆瓣热门横滑行 */
+.scrollbar-hide { scrollbar-width: none; }
+.scrollbar-hide::-webkit-scrollbar { display: none; }

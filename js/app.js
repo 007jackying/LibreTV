@@ -608,6 +608,48 @@ function getCustomApiInfo(customApiIndex) {
     return customAPIs[index];
 }
 
+// Render search result cards in batches of 20 using IntersectionObserver.
+// Avoids painting 200 cards at once when many sources return results.
+const BATCH_SIZE = 20;
+let _batchObserver = null; // track so we can disconnect on new search
+
+function renderResultsBatched(htmlStrings, container) {
+    if (_batchObserver) { _batchObserver.disconnect(); _batchObserver = null; }
+    container.innerHTML = '';
+    if (!htmlStrings.length) return;
+
+    let offset = 0;
+
+    function insertBatch() {
+        const slice = htmlStrings.slice(offset, offset + BATCH_SIZE);
+        container.insertAdjacentHTML('beforeend', slice.join(''));
+        offset += slice.length;
+    }
+
+    insertBatch(); // render first batch immediately
+    if (offset >= htmlStrings.length) return; // all done — no observer needed
+
+    const sentinel = document.createElement('div');
+    sentinel.className = 'col-span-full h-4';
+    container.appendChild(sentinel);
+
+    _batchObserver = new IntersectionObserver(entries => {
+        if (!entries[0].isIntersecting) return;
+        _batchObserver.unobserve(sentinel);
+        insertBatch();
+        if (offset < htmlStrings.length) {
+            container.appendChild(sentinel); // move sentinel to end of new cards
+            _batchObserver.observe(sentinel);
+        } else {
+            sentinel.remove();
+            _batchObserver.disconnect();
+            _batchObserver = null;
+        }
+    }, { rootMargin: '200px' });
+
+    _batchObserver.observe(sentinel);
+}
+
 // 搜索功能 - 修改为支持多选API和多页结果
 async function search() {
     // 强化的密码保护校验 - 防止绕过
@@ -800,9 +842,9 @@ async function search() {
                     </div>
                 </div>
             `;
-        }).join('');
+        });
 
-        resultsDiv.innerHTML = safeResults;
+        renderResultsBatched(safeResults, resultsDiv);
     } catch (error) {
         console.error('搜索错误:', error);
         if (error.name === 'AbortError') {

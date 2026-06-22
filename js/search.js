@@ -1,4 +1,27 @@
+// ponytail: in-memory cache, dies on page reload which is fine — repeat searches within a session are the common case
+const _searchCache = new Map();
+const SEARCH_CACHE_TTL = 10 * 60 * 1000; // 10 min
+
+function _getCached(apiId, query) {
+    const key = `${apiId}::${query}`;
+    const entry = _searchCache.get(key);
+    if (!entry) return null;
+    if (Date.now() > entry.expires) { _searchCache.delete(key); return null; }
+    return entry.data;
+}
+
+function _setCache(apiId, query, data) {
+    if (_searchCache.size > 500) {
+        // evict oldest
+        const oldest = _searchCache.keys().next().value;
+        _searchCache.delete(oldest);
+    }
+    _searchCache.set(`${apiId}::${query}`, { data, expires: Date.now() + SEARCH_CACHE_TTL });
+}
+
 async function searchByAPIAndKeyWord(apiId, query) {
+    const cached = _getCached(apiId, query);
+    if (cached) return cached;
     try {
         let apiUrl, apiName, apiBaseUrl;
         
@@ -119,6 +142,7 @@ async function searchByAPIAndKeyWord(apiId, query) {
             });
         }
         
+        _setCache(apiId, query, results);
         return results;
     } catch (error) {
         console.warn(`API ${apiId} 搜索失败:`, error);
