@@ -151,19 +151,29 @@ var doubanScrollState = {
     displayCount: 0,
     isFetching: false,
     hasMoreData: true,
-    prefetchComplete: false,
     fetchBatchSize: 50,
     displayBatchSize: 50,
-    maxItems: 150
+    prefetchBatchSize: 200,
+    abortController: null,
+    requestId: 0
 };
+
+// Cancel any in-flight fetch and mark state stale
+function cancelDoubanFetch() {
+    if (doubanScrollState.abortController) {
+        doubanScrollState.abortController.abort();
+        doubanScrollState.abortController = null;
+    }
+}
 
 // Reset infinite scroll state and clear DOM
 function resetDoubanInfiniteScrollState() {
+    cancelDoubanFetch();
     doubanScrollState.allData = [];
     doubanScrollState.displayCount = 0;
     doubanScrollState.isFetching = false;
     doubanScrollState.hasMoreData = true;
-    doubanScrollState.prefetchComplete = false;
+    doubanScrollState.requestId++;
 
     const container = document.getElementById('douban-results');
     if (container) {
@@ -173,7 +183,7 @@ function resetDoubanInfiniteScrollState() {
     hideDoubanNoMore();
 }
 
-// Show/hide loading more indicator
+// Show/hide loading more indicator (for scroll-triggered loads)
 function showDoubanLoadingMore() {
     const el = document.getElementById('douban-loading-more');
     if (el) el.classList.remove('hidden');
@@ -184,6 +194,14 @@ function hideDoubanLoadingMore() {
     const el = document.getElementById('douban-loading-more');
     if (el) el.classList.add('hidden');
     removeDoubanShimmerCards();
+}
+
+// Show full-grid shimmer for initial load (replaces grid content)
+function showDoubanInitialLoading() {
+    const container = document.getElementById('douban-results');
+    if (!container) return;
+    container.innerHTML = '';
+    appendDoubanShimmerCards(16);
 }
 
 function appendDoubanShimmerCards(count) {
@@ -241,97 +259,80 @@ function setupDoubanInfiniteScroll() {
         window._doubanScrollObserver.disconnect();
     }
 
+    let scrollDebounceTimer = null;
+
     window._doubanScrollObserver = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
-            if (entry.isIntersecting && !doubanScrollState.isFetching && doubanScrollState.hasMoreData) {
-                handleDoubanScrollLoad();
-            }
+            if (!entry.isIntersecting || doubanScrollState.isFetching || !doubanScrollState.hasMoreData) return;
+            clearTimeout(scrollDebounceTimer);
+            scrollDebounceTimer = setTimeout(handleDoubanScrollLoad, 200);
         });
     }, {
         root: null,
-        rootMargin: '200px',
+        rootMargin: '300px',
         threshold: 0
     });
 
     window._doubanScrollObserver.observe(sentinel);
 }
 
-// Handle scroll-triggered load more
+// Handle scroll-triggered load more — displays from prefetch cache only
 async function handleDoubanScrollLoad() {
     if (doubanScrollState.isFetching) return;
 
-    if (!doubanScrollState.hasMoreData || doubanScrollState.displayCount >= doubanScrollState.maxItems) {
+    if (!doubanScrollState.hasMoreData && doubanScrollState.displayCount >= doubanScrollState.allData.length) {
+        hideDoubanLoadingMore();
         showDoubanNoMore();
         return;
     }
+
+    const nextStart = doubanScrollState.displayCount;
+    const nextEnd = Math.min(nextStart + doubanScrollState.displayBatchSize, doubanScrollState.allData.length);
+
+    if (nextEnd <= nextStart) return;
 
     doubanScrollState.isFetching = true;
     showDoubanLoadingMore();
 
     try {
-        const nextStart = doubanScrollState.displayCount;
-        const nextEnd = Math.min(nextStart + doubanScrollState.displayBatchSize, doubanScrollState.allData.length);
-
-        if (nextEnd > nextStart) {
-            const nextItems = doubanScrollState.allData.slice(nextStart, nextEnd);
-            appendDoubanCards(nextItems);
-            doubanScrollState.displayCount = nextEnd;
-        } else {
-            const target = `https://movie.douban.com/j/search_subjects?type=${doubanMovieTvCurrentSwitch}&tag=${doubanCurrentTag}&sort=recommend&page_limit=${doubanScrollState.fetchBatchSize}&page_start=${nextStart}`;
-            const data = await fetchDoubanData(target);
-
-            if (data.subjects && data.subjects.length > 0) {
-                doubanScrollState.allData = doubanScrollState.allData.concat(data.subjects);
-                const newItems = data.subjects.slice(0, doubanScrollState.displayBatchSize);
-                appendDoubanCards(newItems);
-                doubanScrollState.displayCount += newItems.length;
-            } else {
-                doubanScrollState.hasMoreData = false;
-                showDoubanNoMore();
-            }
-        }
-
-        if (doubanScrollState.displayCount >= doubanScrollState.maxItems) {
-            doubanScrollState.hasMoreData = false;
-            showDoubanNoMore();
-        }
-    } catch (error) {
-        console.error('Scroll load failed:', error);
-        showToast('加载更多数据失败，请稍后重试', 'error');
+        const nextItems = doubanScrollState.allData.slice(nextStart, nextEnd);
+        appendDoubanCards(nextItems);
+        doubanScrollState.displayCount = nextEnd;
     } finally {
         doubanScrollState.isFetching = false;
         hideDoubanLoadingMore();
     }
 }
 
-// Prefetch next batches in background
+// Prefetch next batches in background — runs continuously until API exhausted
 async function prefetchDoubanBatches(tag) {
-    if (doubanScrollState.prefetchComplete) return;
-    doubanScrollState.prefetchComplete = true;
+    const reqId = doubanScrollState.requestId;
+    const batchSize = doubanScrollState.prefetchBatchSize;
 
-    const batchSize = doubanScrollState.fetchBatchSize;
-    const prefetchStarts = [batchSize, batchSize * 2];
-
-    for (const start of prefetchStarts) {
+    while (doubanScrollState.requestId === reqId && doubanScrollState.hasMoreData) {
+        const start = doubanScrollState.allData.length;
         try {
             const target = `https://movie.douban.com/j/search_subjects?type=${doubanMovieTvCurrentSwitch}&tag=${tag}&sort=recommend&page_limit=${batchSize}&page_start=${start}`;
             const data = await fetchDoubanData(target);
 
+            if (doubanScrollState.requestId !== reqId) return;
+
             if (data.subjects && data.subjects.length > 0) {
                 doubanScrollState.allData = doubanScrollState.allData.concat(data.subjects);
+                if (data.subjects.length < batchSize) {
+                    doubanScrollState.hasMoreData = false;
+                    hideDoubanLoadingMore();
+                    showDoubanNoMore();
+                }
             } else {
                 doubanScrollState.hasMoreData = false;
-                break;
+                hideDoubanLoadingMore();
+                showDoubanNoMore();
             }
         } catch (error) {
             console.warn('Prefetch failed for start=' + start, error);
-            doubanScrollState.prefetchComplete = false;
-            break;
+            return;
         }
-    }
-
-    if (doubanScrollState.allData.length >= doubanScrollState.maxItems) {
-        doubanScrollState.hasMoreData = false;
     }
 }
 
@@ -734,21 +735,24 @@ async function renderRecommend(tag) {
     const container = document.getElementById("douban-results");
     if (!container) return;
 
+    cancelDoubanFetch();
     doubanScrollState.isFetching = true;
-    showDoubanLoadingMore();
+    const reqId = ++doubanScrollState.requestId;
+    showDoubanInitialLoading();
 
     try {
+        doubanScrollState.abortController = new AbortController();
         const target = `https://movie.douban.com/j/search_subjects?type=${doubanMovieTvCurrentSwitch}&tag=${tag}&sort=recommend&page_limit=${doubanScrollState.fetchBatchSize}&page_start=0`;
-        
-        const data = await fetchDoubanData(target);
-        
+        const data = await fetchDoubanData(target, doubanScrollState.abortController.signal);
+
+        if (doubanScrollState.requestId !== reqId) return;
+
         if (data.subjects && data.subjects.length > 0) {
             doubanScrollState.allData = [...data.subjects];
             doubanScrollState.displayCount = data.subjects.length;
-            
+
             renderInitialDoubanCards(data, container);
-            
-            // Start prefetching next batches in background
+
             prefetchDoubanBatches(tag);
         } else {
             container.innerHTML = `
@@ -759,7 +763,9 @@ async function renderRecommend(tag) {
             doubanScrollState.hasMoreData = false;
         }
     } catch (error) {
+        if (error.name === 'AbortError') return;
         console.error('获取豆瓣数据失败：', error);
+        if (doubanScrollState.requestId !== reqId) return;
         container.innerHTML = `
             <div class="col-span-full text-center py-8">
                 <div class="text-red-400">❌ 获取豆瓣数据失败，请稍后重试</div>
@@ -767,8 +773,11 @@ async function renderRecommend(tag) {
             </div>
         `;
     } finally {
-        doubanScrollState.isFetching = false;
-        hideDoubanLoadingMore();
+        if (doubanScrollState.requestId === reqId) {
+            doubanScrollState.isFetching = false;
+            doubanScrollState.abortController = null;
+            removeDoubanShimmerCards();
+        }
     }
 }
 
@@ -778,8 +787,18 @@ function renderInitialDoubanCards(data, container) {
     appendDoubanCards(data.subjects);
 }
 
-async function fetchDoubanData(url) {
+async function fetchDoubanData(url, externalSignal) {
     const { proxyType } = getDoubanDataProxyConfig();
+
+    function withTimeout(ms) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), ms);
+        if (externalSignal) {
+            if (externalSignal.aborted) controller.abort();
+            else externalSignal.addEventListener('abort', () => controller.abort(), { once: true });
+        }
+        return { signal: controller.signal, clear: () => clearTimeout(timeoutId) };
+    }
 
     // CDN 直连模式：将 movie.douban.com/m.douban.com 替换为 CDN 域名
     if (proxyType === 'cmliussss-cdn-tencent' || proxyType === 'cmliussss-cdn-ali') {
@@ -789,33 +808,31 @@ async function fetchDoubanData(url) {
         const cdnUrl = url
             .replace('movie.douban.com', cdnDomain)
             .replace('m.douban.com', cdnDomain);
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        const t = withTimeout(10000);
         try {
-            const response = await fetch(cdnUrl, { signal: controller.signal });
-            clearTimeout(timeoutId);
+            const response = await fetch(cdnUrl, { signal: t.signal });
+            t.clear();
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             return await response.json();
         } catch (err) {
-            clearTimeout(timeoutId);
+            t.clear();
+            if (err.name === 'AbortError' && externalSignal?.aborted) throw err;
             console.warn(`CDN 代理请求失败 (${cdnDomain}):`, err.message);
-            // CDN 失败则回退到自动模式
         }
     }
 
     // CORS 代理模式 (ciao-cors)
     if (proxyType === 'cors-proxy-zwei') {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        const t = withTimeout(10000);
         try {
-            const response = await fetch(`https://ciao-cors.is-an.org/${encodeURIComponent(url)}`, { signal: controller.signal });
-            clearTimeout(timeoutId);
+            const response = await fetch(`https://ciao-cors.is-an.org/${encodeURIComponent(url)}`, { signal: t.signal });
+            t.clear();
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             return await response.json();
         } catch (err) {
-            clearTimeout(timeoutId);
+            t.clear();
+            if (err.name === 'AbortError' && externalSignal?.aborted) throw err;
             console.warn('ciao-cors 代理请求失败:', err.message);
-            // 失败则回退到自动模式
         }
     }
 
@@ -834,34 +851,33 @@ async function fetchDoubanData(url) {
     ];
 
     for (const proxy of thirdPartyProxies) {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        const t = withTimeout(10000);
         try {
-            const response = await fetch(proxy.build(url), { signal: controller.signal });
-            clearTimeout(timeoutId);
+            const response = await fetch(proxy.build(url), { signal: t.signal });
+            t.clear();
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const data = await response.json();
             return proxy.parse(data);
         } catch (err) {
-            clearTimeout(timeoutId);
+            t.clear();
+            if (err.name === 'AbortError' && externalSignal?.aborted) throw err;
             console.warn(`第三方代理请求失败 (${proxy.build(url).split('?')[0]}):`, err.message);
         }
     }
 
     // 最终回退：通过本站代理（带鉴权）
     console.warn('所有第三方代理失败，尝试本站代理...');
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const t = withTimeout(10000);
     try {
         const proxiedUrl = await window.ProxyAuth?.addAuthToProxyUrl
             ? await window.ProxyAuth.addAuthToProxyUrl(PROXY_URL + encodeURIComponent(url))
             : PROXY_URL + encodeURIComponent(url);
-        const response = await fetch(proxiedUrl, { signal: controller.signal });
-        clearTimeout(timeoutId);
+        const response = await fetch(proxiedUrl, { signal: t.signal });
+        t.clear();
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         return await response.json();
     } catch (err) {
-        clearTimeout(timeoutId);
+        t.clear();
         console.error('本站代理也失败：', err.message);
         throw err;
     }
